@@ -1852,8 +1852,27 @@ void CGSH_OpenGL::DrawToDepth(unsigned int primitiveType, uint64 primReg)
 	//as a frame buffer and drawing a black sprite into it
 	//Space Harrier does this
 
-	//Must be flat, no texture map, no fog, no blend and no aa
-	if((primReg & 0x1F8) != 0) return;
+	//Must be flat, no texture map, no fog and no aa
+	if((primReg & 0x1B8) != 0) return;
+
+	//Blending is only allowed if it amounts to writing the source color as is
+	//Coraline does this with (Cs - Cd) * As + Cd and As = 0x80
+	if((primReg & 0x40) != 0)
+	{
+		auto alpha = make_convertible<ALPHA>(m_nReg[GS_REG_ALPHA_1 + make_convertible<PRMODE>(primReg).nContext]);
+		if(alpha.nA != ALPHABLEND_ABD_CS) return;
+		if(alpha.nB != alpha.nD) return;
+		uint32 blendFactor = 0;
+		if(alpha.nC == ALPHABLEND_C_FIX)
+		{
+			blendFactor = alpha.nFix;
+		}
+		else if(alpha.nC == ALPHABLEND_C_AS)
+		{
+			blendFactor = make_convertible<RGBAQ>(m_VtxBuffer[0].rgbaq).nA;
+		}
+		if(blendFactor != 0x80) return;
+	}
 
 	//Must be a sprite
 	if(primitiveType != PRIM_SPRITE) return;

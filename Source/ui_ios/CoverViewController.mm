@@ -4,6 +4,7 @@
 #import "SettingsViewController.h"
 #import "../ui_shared/BootablesProcesses.h"
 #import "../ui_shared/BootablesDbClient.h"
+#import "../ui_shared/BootableUtils.h"
 #import "PathUtils.h"
 #import "BackgroundLayer.h"
 #import "CoverViewCell.h"
@@ -27,6 +28,23 @@ static bool IsJitAvailable()
 		}
 	}
 	return false;
+}
+
+//A single game can be bundled inside the app (Play.app/EmbeddedGame/), in which case
+//it is booted directly instead of showing the game collection.
+static NSString* GetEmbeddedGamePath()
+{
+	NSString* embeddedDir = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"EmbeddedGame"];
+	NSArray<NSString*>* files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:embeddedDir error:nil];
+	for(NSString* file in [files sortedArrayUsingSelector:@selector(compare:)])
+	{
+		NSString* filePath = [embeddedDir stringByAppendingPathComponent:file];
+		if(BootableUtils::IsBootableDiscImagePath(fs::path([filePath fileSystemRepresentation])))
+		{
+			return filePath;
+		}
+	}
+	return nil;
 }
 
 @interface CoverViewController ()
@@ -121,7 +139,27 @@ static NSString* const reuseIdentifier = @"coverCell";
 	}
 
 	[[AltServerJitService sharedAltServerJitService] startProcess];
-	[self buildCollectionWithForcedFullScan:NO];
+	if(GetEmbeddedGamePath() == nil)
+	{
+		[self buildCollectionWithForcedFullScan:NO];
+	}
+}
+
+- (void)viewDidAppear:(BOOL)animated
+{
+	[super viewDidAppear:animated];
+
+	//Boot the embedded game once per launch, leaving the emulator returns here
+	static bool embeddedGameBooted = false;
+	NSString* embeddedGamePath = GetEmbeddedGamePath();
+	if(embeddedGamePath && !embeddedGameBooted)
+	{
+		embeddedGameBooted = true;
+		if([self shouldPerformSegueWithIdentifier:@"showEmulator" sender:embeddedGamePath])
+		{
+			[self performSegueWithIdentifier:@"showEmulator" sender:embeddedGamePath];
+		}
+	}
 }
 
 - (void)viewDidUnload
@@ -225,7 +263,12 @@ static NSString* const reuseIdentifier = @"coverCell";
 
 - (void)prepareForSegue:(UIStoryboardSegue*)segue sender:(id)sender
 {
-	if([segue.identifier isEqualToString:@"showEmulator"])
+	if([segue.identifier isEqualToString:@"showEmulator"] && [sender isKindOfClass:[NSString class]])
+	{
+		EmulatorViewController* emulatorViewController = segue.destinationViewController;
+		emulatorViewController.bootablePath = sender;
+	}
+	else if([segue.identifier isEqualToString:@"showEmulator"])
 	{
 		NSIndexPath* indexPath = [[self.collectionView indexPathsForSelectedItems] objectAtIndex:0];
 		auto bootable = (*_bootables)[indexPath.row];
